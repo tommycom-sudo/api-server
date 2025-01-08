@@ -19,3 +19,8 @@ mybatis-plus:
       logic-delete-field: deleted
       logic-delete-value: 1
       logic-not-delete-value: 0 
+sms:
+  url: https://api.ums86.com:9600/sms/Api
+  spCode: 252527
+  loginName: rskzp
+  password: 7e1f63d0e55bba6addfdb9ba3f5e095a
