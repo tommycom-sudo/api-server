@@ -7,6 +7,7 @@
 - 就诊信息(就诊号、就诊时间等)
 
 关联表说明:
+- bbp.hi_sys_org: 机构信息表,包含机构ID(id_org)和机构名称(na)
 - hi_vis_med: 就诊记录主表
 - hi_vis_med_op: 就诊记录扩展表 
 - hi_bil_med_st_oe: 门诊结算表
@@ -19,30 +20,33 @@
 - hi_bil_med_cg_oe: 收费项目表
 */
 
-SELECT s.ID_SPEDIS,                -- 收费项目ID
-       s.idVismed,                 -- 就诊ID
-       s.idMedstoe,               -- 结算ID
-       s.sdMedstCd,               -- 结算类型代码
-       s.naPi,                    -- 病人姓名
-       s.cdPi,                    -- 病人编号
-       s.sdSexCd,                 -- 性别代码
-       s.bod,                     -- 出生日期
-       s.idHiplMain,              -- 医保计划ID
-       s.amtMedst,                -- 结算总金额
-       s.amtMedstPi,              -- 医保结算金额
-       s.amtPypm,                 -- 实际支付金额
-       s.dtMedst,                 -- 结算时间
-       s.cdPirecis,               -- 医保结算代码
-       s.idMedpirecioe,           -- 医保结算ID
-       s.cd_vismed,               -- 就诊号
-       s.id_emp_medst,            -- 结算操作员
-       s.fg_pireci_canc,          -- 医保结算取消标志
-       s.id_emp_pireci_canc,      -- 医保结算取消操作员
-       s.dt_pireci_canc,          -- 医保结算取消时间
-       s.fg_medst_canc,           -- 结算取消标志
-       s.id_emp_medst_canc,       -- 结算取消操作员
-       s.dt_medst_canc,           -- 结算取消时间
-       s.na_die_maj               -- 主要诊断名称
+SELECT s.ID_SPEDIS AS "收费项目ID_hi_bil_med_cg_oe_ID_SPEDIS",
+       s.idVismed AS "就诊ID_hi_vis_med_id_vismed",
+       s.idMedstoe AS "结算ID_hi_bil_med_st_oe_id_medstoe",
+       s.sdMedstCd AS "结算类型代码_hi_bil_med_st_oe_sd_medst_cd",
+       s.naPi AS "病人姓名_hi_vis_med_na_pi",
+       s.cdPi AS "病人编号_hi_pi_cd_pi",
+       s.idPi AS "病人ID_hi_pi_id_pi",
+       s.sdSexCd AS "性别代码_hi_vis_med_sd_sex_cd",
+       s.bod AS "出生日期_hi_vis_med_bod",
+       s.idHiplMain AS "医保计划ID_hi_bil_med_st_oe_id_hipl_main",
+       s.amtMedst AS "结算总金额_hi_bil_med_st_oe_amt_medst",
+       s.amtMedstPi AS "医保结算金额_hi_bil_med_st_oe_amt_medst_pi",
+       s.amtPypm AS "实际支付金额_hi_bil_med_pipy_oe_pm_amt_pypm",
+       s.dtMedst AS "结算时间_hi_bil_med_st_oe_dt_medst",
+       s.cdPirecis AS "结算代码_hi_bil_med_pireci_oe_cd_pireci",
+       s.idMedpirecioe AS "结算ID_hi_bil_med_pireci_oe_id_medpirecioe",
+       s.cd_vismed AS "就诊号_hi_vis_med_op_cd_vismed",
+       s.id_emp_medst AS "结算操作员_hi_bil_med_st_oe_id_emp_medst",
+       s.fg_pireci_canc AS "结算取消标志_hi_bil_med_pireci_oe_fg_pireci_canc",
+       s.id_emp_pireci_canc AS "结算取消操作员_hi_bil_med_pireci_oe_id_emp_pireci_canc",
+       s.dt_pireci_canc AS "结算取消时间_hi_bil_med_pireci_oe_dt_pireci_canc",
+       s.fg_medst_canc AS "结算取消标志_hi_bil_med_st_oe_fg_medst_canc",
+       s.id_emp_medst_canc AS "结算取消操作员_hi_bil_med_st_oe_id_emp_medst_canc",
+       s.dt_medst_canc AS "结算取消时间_hi_bil_med_st_oe_dt_medst_canc",
+       s.na_die_maj AS "主要诊断名称_hi_vis_med_die_na_die_maj",
+       s.id_org AS "机构ID_hi_sys_org_id_org",
+       s.na_org AS "机构名称_hi_sys_org_na"
 FROM (
     SELECT l.*,
            -- 按结算号和医保代码分组,取每组第一条
@@ -56,6 +60,7 @@ FROM (
                 b.sd_medst_cd AS sdMedstCd,
                 a.na_pi AS naPi,
                 e.cd_pi AS cdPi,
+                e.id_pi AS idPi,
                 a.sd_sex_cd AS sdSexCd,
                 a.bod AS bod,
                 b.id_hipl_main AS idHiplMain,
@@ -76,6 +81,8 @@ FROM (
                 b.id_emp_medst_canc,
                 b.dt_medst_canc,
                 die.na_die_maj,
+                org.id_org,                     -- 机构ID
+                org.na AS na_org,               -- 机构名称
                 -- 用于分组的字符串
                 CONCAT(b.id_medstoe,LISTAGG(d.cd_pireci, ',') WITHIN GROUP (ORDER BY d.cd_pireci)) AS str
             FROM hi_vis_med a
@@ -90,6 +97,8 @@ FROM (
                 ON c.id_medpirecioe = d.id_medpirecioe
             LEFT JOIN hi_pi e 
                 ON a.id_pi = e.id_pi
+            LEFT JOIN bbp.hi_sys_org org       -- 关联机构信息表
+                ON org.id_org = a.id_org
             -- 计算实际支付金额的子查询
             LEFT JOIN (
                 SELECT SUM(f.EU_DIRECT * g.AMT_PYPM) sum,
@@ -107,14 +116,15 @@ FROM (
                 -- 查询时间范围
                 AND b.dt_medst >= TO_DATE('2024-11-25 00:00:00', 'yyyy-MM-dd HH24:mi:ss') 
                 AND b.dt_medst <= TO_DATE('2024-12-02 23:59:59', 'yyyy-MM-dd HH24:mi:ss')
-                --AND b.id_hipl_main = '669f826ac6dfe5001507807e'  -- 医保计划ID条件(已注释)
-                --AND a.id_org = 'abc'                             -- 机构ID条件(已注释)
+                
+                --AND a.na_pi = :na_pi                            -- 按姓名查询条件(需要传入参数)
+                --AND e.id_pi = :id_pi                            -- 按病人ID查询条件(需要传入参数)
             GROUP BY 
-                a.id_vismed, b.id_medstoe, b.sd_medst_cd, a.na_pi, e.cd_pi,
+                a.id_vismed, b.id_medstoe, b.sd_medst_cd, a.na_pi, e.cd_pi, e.id_pi,
                 a.sd_sex_cd, a.bod, b.id_hipl_main, b.amt_medst, b.amt_medst_pi, 
                 b.dt_medst, a2.cd_vismed, b.id_emp_medst, t.sum, d.fg_pireci_canc,
                 d.id_emp_pireci_canc, d.dt_pireci_canc, b.fg_medst_canc,
-                b.id_emp_medst_canc, b.dt_medst_canc, die.na_die_maj
+                b.id_emp_medst_canc, b.dt_medst_canc, die.na_die_maj, org.id_org, org.na
         ) oo 
         LEFT JOIN hi_bil_med_cg_oe k 
             ON k.id_medst_cg = oo.idMedstoe

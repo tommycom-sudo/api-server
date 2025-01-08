@@ -1,0 +1,105 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.example.demo.mapper.SettlementMapper">
+    
+    <!-- 
+    门诊结算查询SQL
+    主要用途：查询门诊病人的结算信息,包含以下主要信息:
+    - 病人基本信息(姓名、性别、出生日期等)
+    - 结算信息(结算金额、支付金额等) 
+    - 医保相关信息(医保类型、医保结算信息等)
+    - 就诊信息(就诊号、就诊时间等)
+
+    关联表说明:
+    - bbp.hi_sys_org: 机构信息表,包含机构ID(id_org)和机构名称(na)
+    - hi_vis_med: 就诊记录主表
+    - hi_vis_med_op: 就诊记录扩展表 
+    - hi_bil_med_st_oe: 门诊结算表
+    - hi_bil_med_st_oe_pireci: 医疗收费_结算_门急诊_个人票据
+    - hi_bil_med_pireci_oe: 医疗收费_个人票据_门急诊
+    - hi_pi: 人信息表
+    - hi_bil_med_pipy_oe: 医疗收费_个人收退款_门急诊
+    - hi_bil_med_pipy_oe_pm: 医疗收费_个人收退款_门急诊_付款方式
+    - hi_vis_med_die: 诊断信息表
+    - hi_bil_med_cg_oe: 收费项目表
+    -->
+    <select id="querySettlements" resultType="com.example.demo.model.SettlementVO">
+        SELECT s.* FROM (
+            SELECT l.*, ROW_NUMBER() OVER (PARTITION BY l.str ORDER BY l.id_spedis) AS group_idx
+            FROM (
+                SELECT k.ID_SPEDIS, oo.*
+                FROM (
+                    SELECT 
+                        a.id_vismed AS vismedId,           -- 就诊ID
+                        b.id_medstoe AS medstoeId,         -- 结算ID
+                        b.sd_medst_cd AS medstCd,          -- 结算类型代码
+                        a.na_pi AS patientName,            -- 病人姓名
+                        e.cd_pi AS patientCode,            -- 病人编号
+                        e.id_pi AS patientId,              -- 病人ID
+                        a.sd_sex_cd AS gender,             -- 性别代码
+                        a.bod AS birthDate,                -- 出生日期
+                        b.id_hipl_main AS insurancePlanId, -- 医保计划ID
+                        b.amt_medst AS totalAmount,        -- 结算总金额
+                        b.amt_medst_pi AS insuranceAmount, -- 医保结算金额
+                        NVL(t.sum,0) AS actualPayment,     -- 实际支付金额
+                        b.dt_medst AS settlementTime,      -- 结算时间
+                        a2.cd_vismed AS visitNumber,       -- 就诊号
+                        die.na_die_maj AS mainDiagnosis,   -- 主要诊断名称
+                        org.id_org AS orgId,               -- 机构ID
+                        org.na AS orgName,                 -- 机构名称
+                        -- 用于分组的字符串
+                        CONCAT(b.id_medstoe,LISTAGG(d.cd_pireci, ',') WITHIN GROUP (ORDER BY d.cd_pireci)) AS str
+                    FROM hi_vis_med a
+                    JOIN hi_vis_med_op a2 
+                        ON a.id_vismed = a2.id_vismed
+                    JOIN hi_bil_med_st_oe b 
+                        ON a.id_vismed = b.id_vismed 
+                        AND (b.sd_medst_cd = '111' OR b.sd_medst_cd = '112' OR b.sd_medst_cd = '311')
+                    LEFT JOIN hi_bil_med_st_oe_pireci c 
+                        ON b.id_medstoe = c.id_medstoe
+                    LEFT JOIN hi_bil_med_pireci_oe d 
+                        ON c.id_medpirecioe = d.id_medpirecioe
+                    LEFT JOIN hi_pi e 
+                        ON a.id_pi = e.id_pi
+                    LEFT JOIN bbp.hi_sys_org org
+                        ON org.id_org = a.id_org
+                    -- 计算实际支付金额的子查询
+                    LEFT JOIN (
+                        SELECT SUM(f.EU_DIRECT * g.AMT_PYPM) sum,
+                               f.ID_MEDSTOE idMedstoe
+                        FROM HI_BIL_MED_PIPY_OE f
+                        RIGHT JOIN HI_BIL_MED_PIPY_OE_PM g 
+                            ON g.ID_MEDPIPYOE = f.ID_MEDPIPYOE
+                            AND SD_PIPYPM_CD = '1'
+                        GROUP BY f.ID_MEDSTOE
+                    ) t ON t.idMedstoe = c.ID_MEDSTOE
+                    LEFT JOIN HI_VIS_MED_DIE die 
+                        ON a.ID_VISMED = die.ID_VISMED
+                        AND die.delete_flag != '1'
+                    WHERE 1=1
+                    <if test="startTime != null">
+                        AND b.dt_medst >= #{startTime}
+                    </if>
+                    <if test="endTime != null">
+                        AND b.dt_medst &lt;= #{endTime}
+                    </if>
+                    <if test="patientName != null and patientName != ''">
+                        AND a.na_pi = #{patientName}
+                    </if>
+                    <if test="patientId != null and patientId != ''">
+                        AND e.id_pi = #{patientId}
+                    </if>
+                    GROUP BY 
+                        a.id_vismed, b.id_medstoe, b.sd_medst_cd, a.na_pi, e.cd_pi, e.id_pi,
+                        a.sd_sex_cd, a.bod, b.id_hipl_main, b.amt_medst, b.amt_medst_pi, 
+                        b.dt_medst, a2.cd_vismed, b.id_emp_medst, t.sum, d.fg_pireci_canc,
+                        d.id_emp_pireci_canc, d.dt_pireci_canc, b.fg_medst_canc,
+                        b.id_emp_medst_canc, b.dt_medst_canc, die.na_die_maj, org.id_org, org.na
+                ) oo 
+                LEFT JOIN hi_bil_med_cg_oe k 
+                    ON k.id_medst_cg = oo.medstoeId
+            ) l
+        ) s WHERE s.group_idx = 1
+        ORDER BY s.settlementTime DESC
+    </select>
+</mapper> 
